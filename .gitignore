@@ -1,3 +1,6 @@
 CONTEXT_TV5.md
 .venv/
 *.env
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
