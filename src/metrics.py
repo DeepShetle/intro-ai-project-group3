@@ -307,18 +307,50 @@ def print_evaluation_report(
 
 if __name__ == "__main__":
     import os
-    # Đảm bảo import được src dù chạy từ thư mục gốc hay bên trong src/
+    # Đảm bảo import được src dù chạy từ thư mục gốc learncode hay bên trong intro-ai-project-group3/
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    parent_dir = os.path.dirname(current_dir)
-    if parent_dir not in sys.path:
-        sys.path.insert(0, parent_dir)
-    if current_dir not in sys.path:
-        sys.path.insert(0, current_dir)
+    project_root = os.path.dirname(current_dir)
+    workspace_root = os.path.dirname(project_root)
+
+    for p in (project_root, current_dir, workspace_root):
+        if p not in sys.path:
+            sys.path.insert(0, p)
 
     try:
         from src.interfaces import generate_mock_data, generate_mock_step_history
-    except ImportError:
-        from interfaces import generate_mock_data, generate_mock_step_history
+    except Exception:
+        try:
+            from interfaces import generate_mock_data, generate_mock_step_history
+        except Exception:
+            # Fallback độc lập nếu môi trường chưa cài PyTorch hoặc không import được interfaces
+            def generate_mock_data(num_samples: int = 10, n_size: int = 9):
+                L = n_size * n_size
+                solutions = np.random.randint(1, n_size + 1, size=(num_samples, L)).astype(np.int64)
+                quizzes = solutions.copy()
+                for i in range(num_samples):
+                    num_masks = np.random.randint(int(L * 0.4), int(L * 0.7) + 1)
+                    mask_indices = np.random.choice(L, size=num_masks, replace=False)
+                    quizzes[i, mask_indices] = 0
+                return quizzes, solutions
+
+            def generate_mock_step_history(quiz_1d: np.ndarray, n_size: int = 9):
+                L = len(quiz_1d)
+                board = quiz_1d.copy().astype(np.int64)
+                mask_positions = np.where(board == 0)[0].tolist()
+                np.random.shuffle(mask_positions)
+                step_history = []
+                for step_idx, pos in enumerate(mask_positions, start=1):
+                    value = int(np.random.randint(1, n_size + 1))
+                    margin = float(np.random.uniform(0.0, 1.0))
+                    board[pos] = value
+                    step_history.append({
+                        "step": step_idx,
+                        "unmasked_indices": [int(pos)],
+                        "values": [value],
+                        "margins": [margin],
+                        "board_state": board.copy(),
+                    })
+                return step_history
 
     print("=" * 68)
     print("KIỂM THỬ MODULE METRICS (TV4) - SẴN SÀNG BỘ CHẤM ĐIỂM TỰ ĐỘNG")
