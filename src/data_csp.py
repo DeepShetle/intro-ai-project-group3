@@ -5,8 +5,9 @@ File thuộc quyền quản lý của Thành viên 1.
 TV5 chỉ tạo khung chữ ký hàm theo Data Contract, KHÔNG viết logic bên trong.
 """
 
+from collections import deque
+from typing import Dict, List, Set, Tuple
 import numpy as np
-from typing import Tuple, List, Dict
 
 
 def load_pilot_data(npz_path: str) -> Tuple[np.ndarray, np.ndarray]:
@@ -43,25 +44,68 @@ def _get_box_dims(n_size: int) -> Tuple[int, int]:
         return root, root
 
 
-def _get_candidates(board_2d: np.ndarray, r: int, c: int, n_size: int, box_r: int, box_c: int) -> set:
-    """Trả về tập hợp các số hợp lệ (1..N) có thể điền vào ô (r, c)."""
-    if board_2d[r, c] != 0:
-        return set()
-    
-    # Ràng buộc hàng và cột
-    used = set(board_2d[r, :]) | set(board_2d[:, c])
-    
-    # Ràng buộc khối con
+def _get_neighbors(idx: int, n_size: int, box_r: int, box_c: int) -> Set[int]:
+    """Lấy tập hợp các chỉ số ô hàng xóm (cùng hàng, cột, khối con) với ô idx."""
+    r, c = idx // n_size, idx % n_size
+    neighbors = set()
+
+    # Ràng buộc cùng hàng và cùng cột
+    for i in range(n_size):
+        if i != c:
+            neighbors.add(r * n_size + i)
+        if i != r:
+            neighbors.add(i * n_size + c)
+
+    # Ràng buộc cùng khối con (box)
     br, bc = (r // box_r) * box_r, (c // box_c) * box_c
-    used |= set(board_2d[br:br + box_r, bc:bc + box_c].flatten())
-    
-    return set(range(1, n_size + 1)) - used
+    for row in range(br, br + box_r):
+        for col in range(bc, bc + box_c):
+            neigh_idx = row * n_size + col
+            if neigh_idx != idx:
+                neighbors.add(neigh_idx)
+
+    return neighbors
+
+
+def _revise(xi: int, xj: int, domains: Dict[int, Set[int]]) -> bool:
+    """Hàm revise loại bỏ giá trị x trong Domain(xi) nếu xj không còn giá trị thỏa x != y."""
+    revised = False
+    to_remove = set()
+    for x in domains[xi]:
+        if domains[xj] == {x}:
+            to_remove.add(x)
+            revised = True
+    domains[xi] -= to_remove
+    return revised
+
+
+def _ac3(
+    domains: Dict[int, Set[int]],
+    neighbors_map: Dict[int, Set[int]],
+    queue: deque = None,
+) -> bool:
+    """Thuật toán duy trì hàng đợi cung Arc Queue để lọc/rút gọn miền giá trị."""
+    if queue is None:
+        queue = deque()
+        for xi in domains:
+            for xj in neighbors_map[xi]:
+                queue.append((xi, xj))
+
+    while queue:
+        xi, xj = queue.popleft()
+        if _revise(xi, xj, domains):
+            if len(domains[xi]) == 0:
+                return False  # Xuất hiện miền giá trị rỗng -> xung đột/ngõ cụt
+            for xk in neighbors_map[xi]:
+                if xk != xj:
+                    queue.append((xk, xi))
+    return True
 
 
 def solve_csp(
     quiz_1d: np.ndarray,
     method: str = "mrv",
-    n_size: int = 9,
+    n_size: int = 6,
 ) -> Tuple[np.ndarray, List[Dict]]:
     """Giải một bảng Sudoku bằng thuật toán CSP cổ điển.
 
@@ -84,75 +128,106 @@ def solve_csp(
     """
     box_r, box_c = _get_box_dims(n_size)
     board = quiz_1d.copy().astype(np.int64)
+    seq_len = n_size * n_size
     step_history: List[Dict] = []
     step_counter = [0]
 
-    use_simple_backtrack = method in ["backtrack", "backtracking"]
+    # Bản đồ hàng xóm cho từng vị trí
+    neighbors_map = {
+        i: _get_neighbors(i, n_size, box_r, box_c) for i in range(seq_len)
+    }
 
-    def select_variable(b_2d: np.ndarray):
-        """Chọn ô trống tiếp theo dựa theo heuristic."""
-        if use_simple_backtrack:
-            for r in range(n_size):
-                for c in range(n_size):
-                    if b_2d[r, c] == 0:
-                        cands = _get_candidates(b_2d, r, c, n_size, box_r, box_c)
-                        return (r, c), cands
-            return None, set()
+    # Khởi tạo miền giá trị (Domain) cho từng ô
+    domains: Dict[int, Set[int]] = {}
+    for i in range(seq_len):
+        if board[i] != 0:
+            domains[i] = {int(board[i])}
+        else:
+            domains[i] = set(range(1, n_size + 1))
 
-        # Heuristic MRV: chọn ô có ít giá trị hợp lệ còn lại nhất (tương đương Margin cao nhất)
-        best_pos = None
+    # Tỉa bớt miền giá trị ban đầu dựa theo các ô đã cho sẵn
+    for i in range(seq_len):
+        if board[i] != 0:
+            val = int(board[i])
+            for neigh in neighbors_map[i]:
+                domains[neigh].discard(val)
+
+    # Nếu chạy AC-3 thuần: Thực hiện Arc Consistency trên toàn bảng trước khi tìm kiếm
+    if method == "ac3":
+        if not _ac3(domains, neighbors_map):
+            return board, step_history
+
+    def select_variable():
+        """Chọn biến tiếp theo cần gán."""
+        if method in ["backtrack", "backtracking"]:
+            for idx in range(seq_len):
+                if board[idx] == 0:
+                    return idx, sorted(list(domains[idx]))
+            return None, []
+
+        # Heuristic MRV (Minimum Remaining Values): Chọn ô có ít ứng viên hợp lệ nhất
+        best_idx = None
         min_cands_count = n_size + 2
-        best_cands = set()
-
-        for r in range(n_size):
-            for c in range(n_size):
-                if b_2d[r, c] == 0:
-                    cands = _get_candidates(b_2d, r, c, n_size, box_r, box_c)
-                    num_c = len(cands)
-                    if num_c == 0:
-                        return (r, c), set()  # Nhánh cụt (dead-end)
-                    if num_c < min_cands_count:
-                        min_cands_count = num_c
-                        best_pos = (r, c)
-                        best_cands = cands
-                        if min_cands_count == 1:
-                            return best_pos, best_cands
-        return best_pos, best_cands
+        for idx in range(seq_len):
+            if board[idx] == 0:
+                num_c = len(domains[idx])
+                if num_c == 0:
+                    return idx, []  # Ngõ cụt (dead-end)
+                if num_c < min_cands_count:
+                    min_cands_count = num_c
+                    best_idx = idx
+                    if min_cands_count == 1:
+                        break
+        if best_idx is None:
+            return None, []
+        return best_idx, sorted(list(domains[best_idx]))
 
     def backtrack() -> bool:
-        b_2d = board.reshape(n_size, n_size)
-        pos, candidates = select_variable(b_2d)
+        idx, candidates = select_variable()
 
-        # Hết ô trống -> Đã tìm thấy nghiệm
-        if pos is None:
+        # Không còn ô trống nào -> Đã tìm ra lời giải hợp lệ
+        if idx is None:
             return True
 
         if len(candidates) == 0:
             return False
 
-        r, c = pos
-        idx = r * n_size + c
+        for val in candidates:
+            # Lưu lại trạng thái domains để khôi phục khi quay lui
+            saved_domains = {k: v.copy() for k, v in domains.items()}
 
-        # Duyệt qua các giá trị ứng viên hợp lệ (Forward Checking)
-        for val in sorted(list(candidates)):
             board[idx] = val
+            domains[idx] = {val}
             step_counter[0] += 1
 
             margin_proxy = round(1.0 / float(max(1, len(candidates))), 4)
-
             step_history.append({
                 "step": int(step_counter[0]),
                 "unmasked_indices": [int(idx)],
                 "values": [int(val)],
                 "margins": [float(margin_proxy)],
-                "board_state": board.copy()
+                "board_state": board.copy(),
             })
 
-            if backtrack():
+            consistent = True
+            if method == "ac3":
+                # Đẩy các cung liên quan đến ô vừa gán vào hàng đợi để lan truyền ràng buộc
+                arc_queue = deque([(neigh, idx) for neigh in neighbors_map[idx]])
+                consistent = _ac3(domains, neighbors_map, arc_queue)
+            else:
+                # Forward Checking cơ bản: Loại bỏ giá trị val khỏi miền giá trị các ô hàng xóm
+                for neigh in neighbors_map[idx]:
+                    domains[neigh].discard(val)
+                    if len(domains[neigh]) == 0 and board[neigh] == 0:
+                        consistent = False
+                        break
+
+            if consistent and backtrack():
                 return True
 
             # Quay lui (backtrack) nếu bế tắc
             board[idx] = 0
+            domains.update(saved_domains)
 
         return False
 
