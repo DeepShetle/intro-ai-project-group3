@@ -11,24 +11,16 @@ Cung cấp:
 from __future__ import annotations
 
 import numpy as np
-try:
-    import torch
-    import torch.nn as nn
-    _HAS_TORCH = True
-    _BaseModule = nn.Module
-except ImportError:
-    torch = None
-    nn = None
-    _HAS_TORCH = False
-    _BaseModule = object
-from typing import List, Dict, Tuple, Any
+import torch
+import torch.nn as nn
+from typing import List, Dict, Tuple
 
 
 # ---------------------------------------------------------------------------
 # 1. DummyMDM – Model giả lập
 # ---------------------------------------------------------------------------
 
-class DummyMDM(_BaseModule):
+class DummyMDM(nn.Module):
     """Masked Diffusion Model giả lập trả logits ngẫu nhiên.
 
     Dùng để các thành viên (TV3, TV4, TV5) test pipeline mà không cần
@@ -41,11 +33,10 @@ class DummyMDM(_BaseModule):
     """
 
     def __init__(self, vocab_size: int = 10):
-        if _HAS_TORCH:
-            super().__init__()
+        super().__init__()
         self.vocab_size = vocab_size
 
-    def forward(self, x_t: Any) -> Any:
+    def forward(self, x_t: torch.Tensor) -> torch.Tensor:
         """Trả logits ngẫu nhiên có shape (B, L, vocab_size).
 
         Parameters
@@ -57,8 +48,6 @@ class DummyMDM(_BaseModule):
         -------
         logits : torch.Tensor, shape (B, L, vocab_size)
         """
-        if not _HAS_TORCH:
-            raise RuntimeError("PyTorch chưa được cài đặt. Vui lòng cài đặt: pip install torch")
         B, L = x_t.shape
         return torch.randn(B, L, self.vocab_size, device=x_t.device)
 
@@ -295,14 +284,11 @@ if __name__ == "__main__":
 
     # --- Test 1: DummyMDM ---
     print("\n[Test 1] DummyMDM")
-    if _HAS_TORCH:
-        model = DummyMDM(vocab_size=10)
-        x = torch.randint(0, 10, (2, 81))  # batch=2, seq_len=81
-        logits = model(x)
-        assert logits.shape == (2, 81, 10), f"Shape sai: {logits.shape}"
-        print(f"  ✅ logits.shape = {logits.shape}")
-    else:
-        print("  ⚠️ Bỏ qua test DummyMDM vì chưa cài đặt PyTorch (torch).")
+    model = DummyMDM(vocab_size=10)
+    x = torch.randint(0, 10, (2, 81))  # batch=2, seq_len=81
+    logits = model(x)
+    assert logits.shape == (2, 81, 10), f"Shape sai: {logits.shape}"
+    print(f"  ✅ logits.shape = {logits.shape}")
 
     # --- Test 2: generate_mock_data ---
     print("\n[Test 2] generate_mock_data")
@@ -346,10 +332,9 @@ if __name__ == "__main__":
     print("\n[Test 6] DummyMDM + mock data với n_size=4")
     q4, s4 = generate_mock_data(num_samples=3, n_size=4)
     assert q4.shape == (3, 16), f"Shape sai cho 4×4: {q4.shape}"
-    if _HAS_TORCH:
-        model4 = DummyMDM(vocab_size=5)
-        logits4 = model4(torch.tensor(q4))
-        assert logits4.shape == (3, 16, 5), f"Logits shape sai: {logits4.shape}"
+    model4 = DummyMDM(vocab_size=5)
+    logits4 = model4(torch.tensor(q4))
+    assert logits4.shape == (3, 16, 5), f"Logits shape sai: {logits4.shape}"
     sh4 = generate_mock_step_history(q4[0], n_size=4)
     assert validate_step_history(sh4, seq_len=16)
     print(f"  ✅ Pipeline 4×4 hoạt động đúng")
