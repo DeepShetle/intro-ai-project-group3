@@ -7,6 +7,7 @@ TV5 chỉ tạo khung chữ ký hàm theo Data Contract, KHÔNG viết logic bê
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F  # <--- THÊM MỚI (phục vụ tính Loss)
 
 
 class TinyMDM(nn.Module):
@@ -84,6 +85,28 @@ class TinyMDM(nn.Module):
         return logits
 
 
+# =====================================================================
+# HÀM MỚI THÊM CHO GIAI ĐOẠN 3 (TV2)
+# =====================================================================
+def compute_mdm_loss(
+    logits: torch.Tensor, x_0: torch.Tensor, x_t: torch.Tensor
+) -> torch.Tensor:
+    """Tính Cross-Entropy Loss cho Masked Diffusion Model.
+
+    Chỉ tính loss tại các vị trí ô bị mask (nơi x_t == 0).
+    """
+    masked_pos = x_t == 0
+
+    if masked_pos.sum() == 0:
+        return torch.tensor(0.0, device=logits.device, requires_grad=True)
+
+    masked_logits = logits[masked_pos]
+    masked_targets = x_0[masked_pos]
+
+    loss = F.cross_entropy(masked_logits, masked_targets)
+    return loss
+
+
 if __name__ == "__main__":
     # --- KIỂM THỬ KHUNG MẠNG TRỰC TIẾP TRÊN LOCAL ---
     model = TinyMDM()
@@ -96,3 +119,10 @@ if __name__ == "__main__":
 
     print(f"✅ Kích thước Input (x_t): {mock_x_t.shape}")
     print(f"✅ Kích thước Output (logits): {logits.shape}")
+
+    # --- ĐOẠN MỚI THÊM: KIỂM THỬ HÀM LOSS GIAI ĐOẠN 3 ---
+    mock_x_0 = torch.randint(1, 10, (4, 81))
+    mock_x_t[:, :30] = 0  # Giả lập che 30 ô
+    logits = model(mock_x_t)
+    loss = compute_mdm_loss(logits, mock_x_0, mock_x_t)
+    print(f"✅ Giá trị Loss tính thử: {loss.item():.4f}")
