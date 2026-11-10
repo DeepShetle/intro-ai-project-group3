@@ -4,3 +4,12 @@ CONTEXT_TV5.md
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
+
+# Dữ liệu & Trọng số mô hình (Không commit lên Git)
+data/
+checkpoints/
+*.npz
+*.pt
+*.ckpt
+*.csv
+baseline_*.npz

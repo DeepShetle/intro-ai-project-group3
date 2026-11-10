@@ -12,6 +12,17 @@ Dự án nghiên cứu và hiện thực hóa các chiến lược giải mã th
 3. **Top Probability Margin + Gumbel Noise**: Mở ô dựa trên khoảng cách giữa 2 xác suất cao nhất (Margin confidence) kèm nhiễu Gumbel kiểm soát entropy.
 4. **Baseline CSP cổ điển**: Backtracking, MRV + Forward Checking, AC-3.
 
+## ⚖️ Bảng Phân tách Phần Kế thừa vs Phần Nhóm Tự Phát triển
+
+| Hạng mục / Module | Kế thừa từ Repo gốc (Ye et al., ICML 2025) | Nhóm tự nghiên cứu & Hiện thực mới 100% |
+|:---|:---|:---|
+| **Lý thuyết & Thuật toán** | Ý tưởng thứ tự giải mã thích ứng, công thức Margin Confidence, hệ số nhiễu Gumbel ($0.5$). | Chuyển đổi toàn bộ từ miền xử lý ngôn ngữ tự nhiên (NLP) sang cấu trúc ma trận giải đố logic Sudoku ($4\times4, 6\times6, 9\times9$). |
+| **Kiến trúc Mạng (TV2)** | Khái niệm Bidirectional Masked Transformer. | Tự thiết kế `TinyMDM` nhỏ gọn (~270k - 6M params), cơ chế nhúng 1D Positional Embedding cho Sudoku tối ưu cho Colab Free. |
+| **Baseline Đối sánh (TV1)**| Không có (Paper gốc chỉ so sánh MDM với ARM). | Xây dựng bộ ba thuật toán tìm kiếm thỏa mãn ràng buộc (CSP): Backtracking, MRV + Forward Checking, AC-3. |
+| **Giao thức Dữ liệu (TV5)**| Không có. | Chuẩn hóa Data Contract (`step_history` 5 khóa), xây dựng cổng kiểm định tự động `validate_step_history`. |
+| **Giao diện Demo (TV5)**   | Không có. | Toàn bộ giao diện tương tác HTML/CSS, thanh trượt thời gian, hiệu ứng animation từng bước trên Colab/Jupyter. |
+| **Đo lường & Phân tích (TV4)**| Thước đo độ chính xác chuỗi chung. | Hàm đếm vi phạm ràng buộc Sudoku `count_sudoku_violations`, phân tích tương quan Margin vs Cell Accuracy qua nhiều random seeds. |
+
 ---
 
 ## 📂 2. Cấu trúc thư mục dự án
