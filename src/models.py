@@ -130,7 +130,7 @@ class TinyARM(nn.Module):
         batch_size, length = x.size()
         device = x.device
 
-        # Causal mask hình tam giác: True nghĩa là bị che không được nhìn
+        # Causal mask hình tam giác (dạng float): -inf nghĩa là bị che không được nhìn
         causal_mask = nn.Transformer.generate_square_subsequent_mask(length).to(device)
 
         h = self.token_embedding(x) + self.pos_embedding[:, :length, :]
@@ -152,13 +152,82 @@ def compute_mdm_loss(
     masked_pos = x_t == 0
 
     if masked_pos.sum() == 0:
-        return torch.tensor(0.0, device=logits.device, requires_grad=True)
+        # Giữ loss nối với đồ thị tính toán để backward() không bị lỗi/vô hiệu
+        return logits.sum() * 0.0
 
     masked_logits = logits[masked_pos]
     masked_targets = x_0[masked_pos]
 
     loss = F.cross_entropy(masked_logits, masked_targets)
     return loss
+
+
+# =====================================================================
+# HÀM NẠP CHECKPOINT (đặt ở cấp module để có thể import từ file khác)
+# =====================================================================
+def load_pretrained_mdm(
+    ckpt_path: str,
+    device: str = "cpu",
+    vocab_size: int = 10,
+    seq_len: int = 81,
+    d_model: int = 256,
+    nhead: int = 8,
+    num_layers: int = 6,
+    dim_feedforward: int = 1024,
+    dropout: float = 0.1,
+) -> TinyMDM:
+    """Tải mô hình TinyMDM đã huấn luyện từ file checkpoint (.pt).
+
+    Parameters
+    ----------
+    ckpt_path : str
+        Đường dẫn tới file checkpoint mdm_pilot_best.pt.
+    device : str
+        Thiết bị chạy ('cpu' hoặc 'cuda').
+    vocab_size : int
+        Kích thước vocab (mặc định 10).
+    seq_len : int
+        Độ dài chuỗi Sudoku (mặc định 81).
+    d_model : int
+        Kích thước vector ẩn (mặc định 256).
+    nhead, num_layers, dim_feedforward, dropout :
+        Phải trùng với cấu hình lúc huấn luyện (mặc định giống TinyMDM).
+
+    Returns
+    -------
+    model : TinyMDM
+        Mô hình TinyMDM đã nạp trọng số và chuyển sang chế độ eval().
+    """
+    model = TinyMDM(
+        vocab_size=vocab_size,
+        seq_len=seq_len,
+        d_model=d_model,
+        nhead=nhead,
+        num_layers=num_layers,
+        dim_feedforward=dim_feedforward,
+        dropout=dropout,
+    )
+
+    # Nạp checkpoint từ ổ cứng / Drive
+    checkpoint = torch.load(ckpt_path, map_location=device)
+
+    # Xử lý trường hợp checkpoint lưu dict chứa model_state_dict hoặc lưu trực tiếp state_dict
+    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+        state_dict = checkpoint["model_state_dict"]
+    else:
+        state_dict = checkpoint
+
+    # Bỏ prefix "module." nếu checkpoint được lưu từ DataParallel
+    state_dict = {
+        (k[len("module."):] if k.startswith("module.") else k): v
+        for k, v in state_dict.items()
+    }
+    model.load_state_dict(state_dict)
+
+    model.to(device)
+    model.eval()  # Đưa về chế độ suy luận
+    print(f"✅ Đã nạp thành công mô hình TinyMDM từ: {ckpt_path} lên {device}")
+    return model
 
 
 if __name__ == "__main__":
