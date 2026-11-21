@@ -12,4 +12,8 @@ checkpoints/
 *.pt
 *.ckpt
 *.csv
-baseline_*.npz
+results/
+baseline_*.npzresults/
+
+*.pkl
+
